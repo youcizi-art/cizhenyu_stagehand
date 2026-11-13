@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Stagehand thin MCP — credentials only from Deploy auth dir / process env.
- * Never hardcode Browserbase / model keys in this repo.
+ * Stagehand MCP — local browser (shared Chrome/Edge/Chromium) by default,
+ * Browserbase as fallback. Credentials via Deploy auth dir / process env.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -20,12 +20,18 @@ function authDir() {
 
 function loadSecrets() {
   const out = {
+    mode: (process.env.STAGEHAND_MODE || "auto").trim().toLowerCase(),
     browserbaseApiKey:
       process.env.BROWSERBASE_API_KEY || process.env.STAGEHAND_BROWSERBASE_API_KEY || "",
     browserbaseProjectId:
       process.env.BROWSERBASE_PROJECT_ID || process.env.STAGEHAND_BROWSERBASE_PROJECT_ID || "",
     modelApiKey: process.env.OPENAI_API_KEY || process.env.STAGEHAND_MODEL_API_KEY || "",
     modelName: process.env.STAGEHAND_MODEL_NAME || "openai/gpt-4o-mini",
+    browserExecutable:
+      process.env.CIZHENYU_BROWSER_EXECUTABLE || process.env.STAGEHAND_BROWSER_EXECUTABLE || "",
+    browserChannel:
+      process.env.CIZHENYU_BROWSER_CHANNEL || process.env.STAGEHAND_BROWSER_CHANNEL || "",
+    browserSource: process.env.CIZHENYU_BROWSER_SOURCE || "",
   };
 
   const dir = authDir();
@@ -33,6 +39,7 @@ function loadSecrets() {
     const file = path.join(dir, "stagehand.json");
     if (fs.existsSync(file)) {
       const conf = JSON.parse(fs.readFileSync(file, "utf8"));
+      out.mode = (conf.mode || out.mode || "auto").toString().trim().toLowerCase();
       out.browserbaseApiKey =
         out.browserbaseApiKey || conf.browserbaseApiKey || conf.BROWSERBASE_API_KEY || "";
       out.browserbaseProjectId =
@@ -46,54 +53,100 @@ function loadSecrets() {
     }
   }
 
-  if (!out.browserbaseApiKey || !out.browserbaseProjectId) {
-    throw new Error(
-      "Stagehand 缺少 Browserbase 凭据。请在 Deploy 凭证中配置 stagehand（browserbaseApiKey / browserbaseProjectId），由软件注入 CIZHENYU_AUTH_DIR。",
-    );
-  }
   if (!out.modelApiKey) {
     throw new Error(
-      "Stagehand 缺少 modelApiKey。请在 Deploy 凭证中配置 stagehand.modelApiKey。",
+      "Stagehand 缺少 modelApiKey。请在 Deploy 凭证中配置 stagehand.modelApiKey（本地/云模式均需要）。",
     );
   }
   return out;
 }
 
+function canUseLocal(secrets) {
+  if (secrets.browserExecutable && fs.existsSync(secrets.browserExecutable)) return true;
+  if (secrets.browserSource === "system_chrome" || secrets.browserSource === "system_edge") {
+    return true;
+  }
+  if (secrets.browserSource === "shared_chromium") return true;
+  // channel-only: Stagehand LOCAL may still launch default Chromium if present
+  return Boolean(secrets.browserChannel && secrets.browserChannel !== "chromium");
+}
+
+function resolveEnv(secrets) {
+  const mode = secrets.mode || "auto";
+  if (mode === "browserbase") {
+    if (!secrets.browserbaseApiKey || !secrets.browserbaseProjectId) {
+      throw new Error(
+        "Stagehand 云模式需要 Browserbase API Key 与 Project ID（Deploy 凭证 stagehand）。",
+      );
+    }
+    return "BROWSERBASE";
+  }
+  if (mode === "local") {
+    if (!canUseLocal(secrets) && !secrets.browserExecutable) {
+      throw new Error(
+        "Stagehand 本地模式未找到浏览器。请安装 Chrome/Edge，或先安装 Crawl4AI 以下载共享 Chromium；也可将 mode 改为 browserbase。",
+      );
+    }
+    return "LOCAL";
+  }
+  // auto
+  if (canUseLocal(secrets)) return "LOCAL";
+  if (secrets.browserbaseApiKey && secrets.browserbaseProjectId) return "BROWSERBASE";
+  throw new Error(
+    "Stagehand auto：本机无可用浏览器且未配置 Browserbase。请安装 Chrome/Edge，或填写云凭证。",
+  );
+}
+
 let stagehand = null;
 let secrets = null;
+let activeEnv = null;
 
 async function ensureSession() {
   if (stagehand) return stagehand;
   secrets = loadSecrets();
-  process.env.BROWSERBASE_API_KEY = secrets.browserbaseApiKey;
-  process.env.BROWSERBASE_PROJECT_ID = secrets.browserbaseProjectId;
+  activeEnv = resolveEnv(secrets);
   process.env.OPENAI_API_KEY = secrets.modelApiKey;
 
-  stagehand = new Stagehand({
-    env: "BROWSERBASE",
-    apiKey: secrets.browserbaseApiKey,
-    projectId: secrets.browserbaseProjectId,
-    modelName: secrets.modelName,
-    modelClientOptions: { apiKey: secrets.modelApiKey },
-  });
+  if (activeEnv === "BROWSERBASE") {
+    process.env.BROWSERBASE_API_KEY = secrets.browserbaseApiKey;
+    process.env.BROWSERBASE_PROJECT_ID = secrets.browserbaseProjectId;
+    stagehand = new Stagehand({
+      env: "BROWSERBASE",
+      apiKey: secrets.browserbaseApiKey,
+      projectId: secrets.browserbaseProjectId,
+      modelName: secrets.modelName,
+      modelClientOptions: { apiKey: secrets.modelApiKey },
+    });
+  } else {
+    const localOpts = { headless: true };
+    if (secrets.browserExecutable) {
+      localOpts.executablePath = secrets.browserExecutable;
+    }
+    stagehand = new Stagehand({
+      env: "LOCAL",
+      modelName: secrets.modelName,
+      modelClientOptions: { apiKey: secrets.modelApiKey },
+      localBrowserLaunchOptions: localOpts,
+    });
+  }
   await stagehand.init();
   return stagehand;
 }
 
 async function closeSession() {
-  if (!stagehand) return { ok: true };
+  if (!stagehand) return { ok: true, env: activeEnv };
   try {
     await stagehand.close();
   } finally {
     stagehand = null;
   }
-  return { ok: true };
+  return { ok: true, env: activeEnv };
 }
 
 const tools = [
   {
     name: "stagehand_navigate",
-    description: "在 Browserbase 浏览器中打开 URL。",
+    description: "在浏览器中打开 URL（本地 Chrome/Edge/共享 Chromium，或 Browserbase 云）。",
     inputSchema: {
       type: "object",
       properties: { url: { type: "string" } },
@@ -132,7 +185,7 @@ const tools = [
   },
   {
     name: "stagehand_close",
-    description: "关闭当前 Stagehand / Browserbase 会话。",
+    description: "关闭当前 Stagehand 浏览器会话。",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
 ];
@@ -144,24 +197,28 @@ async function callTool(name, args = {}) {
   switch (name) {
     case "stagehand_navigate":
       await page.goto(args.url, { waitUntil: "domcontentloaded" });
-      return { ok: true, url: args.url };
+      return { ok: true, url: args.url, env: activeEnv };
     case "stagehand_act":
-      return { ok: true, result: await sh.act(args.instruction) };
+      return { ok: true, env: activeEnv, result: await sh.act(args.instruction) };
     case "stagehand_extract": {
       const instruction = args.schema_hint
         ? `${args.instruction}\nSchema hint: ${args.schema_hint}`
         : args.instruction;
-      return { ok: true, result: await sh.extract(instruction) };
+      return { ok: true, env: activeEnv, result: await sh.extract(instruction) };
     }
     case "stagehand_observe":
-      return { ok: true, result: await sh.observe(args.instruction || undefined) };
+      return {
+        ok: true,
+        env: activeEnv,
+        result: await sh.observe(args.instruction || undefined),
+      };
     default:
       return { ok: false, error: `unknown tool: ${name}` };
   }
 }
 
 const server = new Server(
-  { name: "cizhenyu-stagehand", version: "1.0.0" },
+  { name: "cizhenyu-stagehand", version: "1.1.0" },
   { capabilities: { tools: {} } },
 );
 
