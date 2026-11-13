@@ -55,10 +55,58 @@ function loadSecrets() {
 
   if (!out.modelApiKey) {
     throw new Error(
-      "Stagehand 缺少 modelApiKey。请在 Deploy 凭证中配置 stagehand.modelApiKey（本地/云模式均需要）。",
+      "Stagehand 缺少大模型 API Key。请在 Deploy 凭证中配置（如 OpenAI Key），无法自动生成。",
     );
   }
   return out;
+}
+
+async function resolveBrowserbaseProjectId(apiKey) {
+  const res = await fetch("https://api.browserbase.com/v1/projects", {
+    headers: { "X-BB-API-Key": apiKey },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `无法解析 Browserbase Project ID（HTTP ${res.status}）。请到 https://www.browserbase.com/settings 检查 API Key。${body}`,
+    );
+  }
+  const list = await res.json();
+  const arr = Array.isArray(list) ? list : [];
+  const id = (arr[0]?.id || "").toString().trim();
+  if (!id) {
+    throw new Error(
+      "该 Browserbase API Key 下没有可用项目，请在控制台创建项目后再试。",
+    );
+  }
+  return id;
+}
+
+async function ensureBrowserbaseProjectId(secrets) {
+  if (!secrets.browserbaseApiKey) return secrets;
+  if (secrets.browserbaseProjectId) return secrets;
+  secrets.browserbaseProjectId = await resolveBrowserbaseProjectId(
+    secrets.browserbaseApiKey,
+  );
+  // 写回 stagehand.json，避免下次再请求
+  const dir = authDir();
+  if (dir) {
+    const file = path.join(dir, "stagehand.json");
+    try {
+      const conf = fs.existsSync(file)
+        ? JSON.parse(fs.readFileSync(file, "utf8"))
+        : {};
+      conf.browserbaseProjectId = secrets.browserbaseProjectId;
+      conf.browserbaseApiKey = conf.browserbaseApiKey || secrets.browserbaseApiKey;
+      conf.mode = conf.mode || secrets.mode;
+      conf.modelApiKey = conf.modelApiKey || secrets.modelApiKey;
+      conf.modelName = conf.modelName || secrets.modelName;
+      fs.writeFileSync(file, JSON.stringify(conf, null, 2), "utf8");
+    } catch {
+      /* 写回失败不阻塞运行 */
+    }
+  }
+  return secrets;
 }
 
 function canUseLocal(secrets) {
@@ -71,29 +119,33 @@ function canUseLocal(secrets) {
   return Boolean(secrets.browserChannel && secrets.browserChannel !== "chromium");
 }
 
-function resolveEnv(secrets) {
+async function resolveEnv(secrets) {
   const mode = secrets.mode || "auto";
   if (mode === "browserbase") {
-    if (!secrets.browserbaseApiKey || !secrets.browserbaseProjectId) {
+    if (!secrets.browserbaseApiKey) {
       throw new Error(
-        "Stagehand 云模式需要 Browserbase API Key 与 Project ID（Deploy 凭证 stagehand）。",
+        "Stagehand 云模式需要 Browserbase API Key。请在 Deploy 凭证中填写，或改为「自动/仅本地」。获取：https://www.browserbase.com/settings",
       );
     }
+    await ensureBrowserbaseProjectId(secrets);
     return "BROWSERBASE";
   }
   if (mode === "local") {
     if (!canUseLocal(secrets) && !secrets.browserExecutable) {
       throw new Error(
-        "Stagehand 本地模式未找到浏览器。请安装 Chrome/Edge，或先安装 Crawl4AI 以下载共享 Chromium；也可将 mode 改为 browserbase。",
+        "Stagehand 本地模式未找到浏览器。请安装 Chrome/Edge，或先安装 Crawl4AI 以下载共享 Chromium；也可将模式改为「自动」并配置 Browserbase。",
       );
     }
     return "LOCAL";
   }
   // auto
   if (canUseLocal(secrets)) return "LOCAL";
-  if (secrets.browserbaseApiKey && secrets.browserbaseProjectId) return "BROWSERBASE";
+  if (secrets.browserbaseApiKey) {
+    await ensureBrowserbaseProjectId(secrets);
+    return "BROWSERBASE";
+  }
   throw new Error(
-    "Stagehand auto：本机无可用浏览器且未配置 Browserbase。请安装 Chrome/Edge，或填写云凭证。",
+    "Stagehand auto：本机无可用浏览器且未配置 Browserbase。请安装 Chrome/Edge，或填写云端 API Key（推荐）：https://www.browserbase.com/settings",
   );
 }
 
@@ -104,7 +156,7 @@ let activeEnv = null;
 async function ensureSession() {
   if (stagehand) return stagehand;
   secrets = loadSecrets();
-  activeEnv = resolveEnv(secrets);
+  activeEnv = await resolveEnv(secrets);
   process.env.OPENAI_API_KEY = secrets.modelApiKey;
 
   if (activeEnv === "BROWSERBASE") {
@@ -218,7 +270,7 @@ async function callTool(name, args = {}) {
 }
 
 const server = new Server(
-  { name: "cizhenyu-stagehand", version: "1.1.0" },
+  { name: "cizhenyu-stagehand", version: "1.2.0" },
   { capabilities: { tools: {} } },
 );
 
