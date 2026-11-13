@@ -99,35 +99,63 @@ function buildModelClientOptions(secrets) {
   return opts;
 }
 
-async function resolveBrowserbaseProjectId(apiKey) {
+/** 列出当前 API Key 下的项目（客户账号作用域，无写死 ID） */
+async function listBrowserbaseProjects(apiKey) {
   const res = await fetch("https://api.browserbase.com/v1/projects", {
     headers: { "X-BB-API-Key": apiKey },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(
-      `无法解析 Browserbase Project ID（HTTP ${res.status}）。请到 https://www.browserbase.com/settings 检查 API Key。${body}`,
+      `无法解析 Browserbase 项目（HTTP ${res.status}）。请到 https://www.browserbase.com/settings 检查 API Key。${body}`,
     );
   }
   const list = await res.json();
   const arr = Array.isArray(list) ? list : [];
-  const id = (arr[0]?.id || "").toString().trim();
-  if (!id) {
-    throw new Error("该 Browserbase API Key 下没有可用项目，请在控制台创建项目后再试。");
+  return arr
+    .map((p) => ({
+      id: (p?.id || "").toString().trim(),
+      name: (p?.name || "").toString().trim(),
+      updatedAt: (p?.updatedAt || "").toString().trim(),
+    }))
+    .filter((p) => p.id);
+}
+
+/**
+ * 解析项目：preferred 仍属于该 Key 则保留；否则取 updatedAt 最新。
+ * 换 Key 后旧 Project ID 会被自动丢弃，不会沿用他人/旧账号项目。
+ */
+function pickBrowserbaseProject(projects, preferred) {
+  if (!projects.length) {
+    throw new Error("该 API Key 下没有可用项目，请在 Browserbase 控制台创建项目后再试。");
   }
-  return id;
+  const want = (preferred || "").toString().trim();
+  if (want) {
+    const hit = projects.find((p) => p.id === want);
+    if (hit) return hit;
+  }
+  const sorted = [...projects].sort((a, b) =>
+    (b.updatedAt || "").localeCompare(a.updatedAt || ""),
+  );
+  return sorted[0];
 }
 
 async function ensureBrowserbaseProjectId(secrets) {
   if (!secrets.browserbaseApiKey) return secrets;
-  if (secrets.browserbaseProjectId) return secrets;
-  secrets.browserbaseProjectId = await resolveBrowserbaseProjectId(secrets.browserbaseApiKey);
+  const projects = await listBrowserbaseProjects(secrets.browserbaseApiKey);
+  const picked = pickBrowserbaseProject(projects, secrets.browserbaseProjectId);
+  secrets.browserbaseProjectId = picked.id;
+  secrets.browserbaseProjectName = picked.name || "";
+
   const dir = authDir();
   if (dir) {
     const file = path.join(dir, "stagehand.json");
     try {
       const conf = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
       conf.browserbaseProjectId = secrets.browserbaseProjectId;
+      if (secrets.browserbaseProjectName) {
+        conf.browserbaseProjectName = secrets.browserbaseProjectName;
+      }
       conf.browserbaseApiKey = conf.browserbaseApiKey || secrets.browserbaseApiKey;
       conf.mode = conf.mode || secrets.mode;
       conf.modelApiKey = conf.modelApiKey || secrets.modelApiKey;
@@ -332,7 +360,7 @@ async function callTool(name, args = {}) {
 }
 
 const server = new Server(
-  { name: "cizhenyu-stagehand", version: "1.3.0" },
+  { name: "cizhenyu-stagehand", version: "1.3.1" },
   { capabilities: { tools: {} } },
 );
 

@@ -40,7 +40,8 @@ Deploy 写入 `CIZHENYU_AUTH_DIR/stagehand.json`：
 - GLM：`openai/glm-4-flash` + `https://open.bigmodel.cn/api/paas/v4`
 - 千问：`openai/qwen-plus` + DashScope compatible-mode URL
 
-`browserbaseProjectId` 可省略：有 API Key 时启动器会自动拉取。
+`browserbaseProjectId` 可省略或由 Deploy 选择：启动时用**当前 API Key** 列出项目并校验；
+若已存 ID 不属于该 Key（换 Key / 旧残留），会丢弃并改选 `updatedAt` 最新的项目。**无写死他人 Project ID。**
 
 浏览器由 Deploy 共享策略解析（Chrome → Edge → `browsers/pw`）。
 
