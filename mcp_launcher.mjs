@@ -329,12 +329,13 @@ async function callTool(name, args = {}) {
         env: activeEnv,
         model: secrets?.modelName,
       };
+    // Stagehand v2.x：act / extract / observe 挂在 page 上（非 Stagehand 根实例）
     case "stagehand_act":
       return {
         ok: true,
         env: activeEnv,
         model: secrets?.modelName,
-        result: await sh.act(args.instruction),
+        result: await page.act(args.instruction),
       };
     case "stagehand_extract": {
       const instruction = args.schema_hint
@@ -344,7 +345,7 @@ async function callTool(name, args = {}) {
         ok: true,
         env: activeEnv,
         model: secrets?.modelName,
-        result: await sh.extract(instruction),
+        result: await page.extract(instruction),
       };
     }
     case "stagehand_observe":
@@ -352,7 +353,7 @@ async function callTool(name, args = {}) {
         ok: true,
         env: activeEnv,
         model: secrets?.modelName,
-        result: await sh.observe(args.instruction || undefined),
+        result: await page.observe(args.instruction || undefined),
       };
     default:
       return { ok: false, error: `unknown tool: ${name}` };
@@ -360,7 +361,7 @@ async function callTool(name, args = {}) {
 }
 
 const server = new Server(
-  { name: "cizhenyu-stagehand", version: "1.3.1" },
+  { name: "cizhenyu-stagehand", version: "1.3.2" },
   { capabilities: { tools: {} } },
 );
 
