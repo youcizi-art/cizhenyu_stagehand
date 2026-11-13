@@ -1,6 +1,6 @@
 # cizhenyu_stagehand
 
-Stagehand MCP for 词真语 Deploy：**本地浏览器优先，Browserbase 云兜底**。
+Stagehand MCP for 词真语 Deploy：**本地浏览器优先，Browserbase 云兜底**；**模型由配置驱动，不写死厂商**。
 
 ## 运行模式（`mode`）
 
@@ -17,16 +17,32 @@ Deploy 写入 `CIZHENYU_AUTH_DIR/stagehand.json`：
 ```json
 {
   "mode": "auto",
+  "modelProvider": "deepseek",
+  "modelName": "deepseek/deepseek-chat",
   "modelApiKey": "...",
-  "modelName": "openai/gpt-4o-mini",
+  "modelBaseUrl": "",
   "browserbaseApiKey": "...",
   "browserbaseProjectId": "..."
 }
 ```
 
-本地模式只需 `modelApiKey`。云模式另需 Browserbase 两项。
+| 字段 | 说明 |
+|------|------|
+| `modelName` | **必填**。一等公民可用裸名（`gpt-4o-mini`、`gemini-2.0-flash`）；AISDK / 兼容端点用 `provider/model` |
+| `modelApiKey` | **必填**。对应厂商 Key |
+| `modelBaseUrl` | 可选。Kimi / GLM / 千问等 OpenAI 兼容端点 |
+| `modelProvider` | 可选。Deploy UI 厂商预设 ID |
 
-浏览器由 Deploy **共享策略**解析（系统 Chrome → Edge → 工作目录 `browsers/pw`），经环境变量注入，各工具不重复下载。
+国内示例：
+
+- DeepSeek：`deepseek/deepseek-chat`（SDK 内置）
+- Kimi：`openai/moonshot-v1-auto` + `https://api.moonshot.cn/v1`
+- GLM：`openai/glm-4-flash` + `https://open.bigmodel.cn/api/paas/v4`
+- 千问：`openai/qwen-plus` + DashScope compatible-mode URL
+
+`browserbaseProjectId` 可省略：有 API Key 时启动器会自动拉取。
+
+浏览器由 Deploy 共享策略解析（Chrome → Edge → `browsers/pw`）。
 
 ## Install / run
 
@@ -34,3 +50,5 @@ Deploy 写入 `CIZHENYU_AUTH_DIR/stagehand.json`：
 npm install
 node mcp_launcher.mjs
 ```
+
+需要 Node ≥ 20。Deploy 工具箱重装后才会更新到本机安装副本。

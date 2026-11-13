@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Stagehand MCP — local browser (shared Chrome/Edge/Chromium) by default,
- * Browserbase as fallback. Credentials via Deploy auth dir / process env.
+ * Stagehand MCP — local browser by default, Browserbase fallback.
+ * Model is fully config-driven (modelName + apiKey + optional baseURL).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -25,8 +25,16 @@ function loadSecrets() {
       process.env.BROWSERBASE_API_KEY || process.env.STAGEHAND_BROWSERBASE_API_KEY || "",
     browserbaseProjectId:
       process.env.BROWSERBASE_PROJECT_ID || process.env.STAGEHAND_BROWSERBASE_PROJECT_ID || "",
-    modelApiKey: process.env.OPENAI_API_KEY || process.env.STAGEHAND_MODEL_API_KEY || "",
-    modelName: process.env.STAGEHAND_MODEL_NAME || "openai/gpt-4o-mini",
+    modelApiKey:
+      process.env.STAGEHAND_MODEL_API_KEY ||
+      process.env.OPENAI_API_KEY ||
+      process.env.ANTHROPIC_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      process.env.DEEPSEEK_API_KEY ||
+      "",
+    modelName: (process.env.STAGEHAND_MODEL_NAME || "").trim(),
+    modelProvider: (process.env.STAGEHAND_MODEL_PROVIDER || "").trim(),
+    modelBaseUrl: (process.env.STAGEHAND_MODEL_BASE_URL || "").trim(),
     browserExecutable:
       process.env.CIZHENYU_BROWSER_EXECUTABLE || process.env.STAGEHAND_BROWSER_EXECUTABLE || "",
     browserChannel:
@@ -48,17 +56,47 @@ function loadSecrets() {
         conf.BROWSERBASE_PROJECT_ID ||
         "";
       out.modelApiKey =
-        out.modelApiKey || conf.modelApiKey || conf.OPENAI_API_KEY || conf.openaiApiKey || "";
-      out.modelName = conf.modelName || out.modelName;
+        out.modelApiKey ||
+        conf.modelApiKey ||
+        conf.OPENAI_API_KEY ||
+        conf.openaiApiKey ||
+        "";
+      out.modelName = (conf.modelName || out.modelName || "").toString().trim();
+      out.modelProvider = (conf.modelProvider || out.modelProvider || "").toString().trim();
+      out.modelBaseUrl = (
+        conf.modelBaseUrl ||
+        conf.baseURL ||
+        out.modelBaseUrl ||
+        ""
+      )
+        .toString()
+        .trim();
     }
   }
 
+  // 历史误写：openai/gpt-4o-mini → 2.5 一等公民裸名
+  if (out.modelName === "openai/gpt-4o-mini") out.modelName = "gpt-4o-mini";
+  if (out.modelName === "openai/gpt-4o") out.modelName = "gpt-4o";
+
   if (!out.modelApiKey) {
     throw new Error(
-      "Stagehand 缺少大模型 API Key。请在 Deploy 凭证中配置（如 OpenAI Key），无法自动生成。",
+      "Stagehand 缺少模型 API Key。请在 Deploy 凭证中按所选厂商填写（OpenAI / DeepSeek / Kimi 等）。",
+    );
+  }
+  if (!out.modelName) {
+    throw new Error(
+      "Stagehand 缺少模型名称（modelName）。请在 Deploy 凭证中选择厂商或填写模型名，勿依赖写死默认。",
     );
   }
   return out;
+}
+
+function buildModelClientOptions(secrets) {
+  const opts = { apiKey: secrets.modelApiKey };
+  if (secrets.modelBaseUrl) {
+    opts.baseURL = secrets.modelBaseUrl;
+  }
+  return opts;
 }
 
 async function resolveBrowserbaseProjectId(apiKey) {
@@ -75,9 +113,7 @@ async function resolveBrowserbaseProjectId(apiKey) {
   const arr = Array.isArray(list) ? list : [];
   const id = (arr[0]?.id || "").toString().trim();
   if (!id) {
-    throw new Error(
-      "该 Browserbase API Key 下没有可用项目，请在控制台创建项目后再试。",
-    );
+    throw new Error("该 Browserbase API Key 下没有可用项目，请在控制台创建项目后再试。");
   }
   return id;
 }
@@ -85,25 +121,22 @@ async function resolveBrowserbaseProjectId(apiKey) {
 async function ensureBrowserbaseProjectId(secrets) {
   if (!secrets.browserbaseApiKey) return secrets;
   if (secrets.browserbaseProjectId) return secrets;
-  secrets.browserbaseProjectId = await resolveBrowserbaseProjectId(
-    secrets.browserbaseApiKey,
-  );
-  // 写回 stagehand.json，避免下次再请求
+  secrets.browserbaseProjectId = await resolveBrowserbaseProjectId(secrets.browserbaseApiKey);
   const dir = authDir();
   if (dir) {
     const file = path.join(dir, "stagehand.json");
     try {
-      const conf = fs.existsSync(file)
-        ? JSON.parse(fs.readFileSync(file, "utf8"))
-        : {};
+      const conf = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
       conf.browserbaseProjectId = secrets.browserbaseProjectId;
       conf.browserbaseApiKey = conf.browserbaseApiKey || secrets.browserbaseApiKey;
       conf.mode = conf.mode || secrets.mode;
       conf.modelApiKey = conf.modelApiKey || secrets.modelApiKey;
       conf.modelName = conf.modelName || secrets.modelName;
+      if (secrets.modelBaseUrl) conf.modelBaseUrl = secrets.modelBaseUrl;
+      if (secrets.modelProvider) conf.modelProvider = secrets.modelProvider;
       fs.writeFileSync(file, JSON.stringify(conf, null, 2), "utf8");
     } catch {
-      /* 写回失败不阻塞运行 */
+      /* ignore */
     }
   }
   return secrets;
@@ -115,7 +148,6 @@ function canUseLocal(secrets) {
     return true;
   }
   if (secrets.browserSource === "shared_chromium") return true;
-  // channel-only: Stagehand LOCAL may still launch default Chromium if present
   return Boolean(secrets.browserChannel && secrets.browserChannel !== "chromium");
 }
 
@@ -124,7 +156,7 @@ async function resolveEnv(secrets) {
   if (mode === "browserbase") {
     if (!secrets.browserbaseApiKey) {
       throw new Error(
-        "Stagehand 云模式需要 Browserbase API Key。请在 Deploy 凭证中填写，或改为「自动/仅本地」。获取：https://www.browserbase.com/settings",
+        "Stagehand 云模式需要 Browserbase API Key。获取：https://www.browserbase.com/settings",
       );
     }
     await ensureBrowserbaseProjectId(secrets);
@@ -133,19 +165,18 @@ async function resolveEnv(secrets) {
   if (mode === "local") {
     if (!canUseLocal(secrets) && !secrets.browserExecutable) {
       throw new Error(
-        "Stagehand 本地模式未找到浏览器。请安装 Chrome/Edge，或先安装 Crawl4AI 以下载共享 Chromium；也可将模式改为「自动」并配置 Browserbase。",
+        "Stagehand 本地模式未找到浏览器。请安装 Chrome/Edge，或先安装 Crawl4AI；也可改用云模式。",
       );
     }
     return "LOCAL";
   }
-  // auto
   if (canUseLocal(secrets)) return "LOCAL";
   if (secrets.browserbaseApiKey) {
     await ensureBrowserbaseProjectId(secrets);
     return "BROWSERBASE";
   }
   throw new Error(
-    "Stagehand auto：本机无可用浏览器且未配置 Browserbase。请安装 Chrome/Edge，或填写云端 API Key（推荐）：https://www.browserbase.com/settings",
+    "Stagehand auto：本机无可用浏览器且未配置 Browserbase。请安装浏览器或填写云端 Key：https://www.browserbase.com/settings",
   );
 }
 
@@ -157,7 +188,24 @@ async function ensureSession() {
   if (stagehand) return stagehand;
   secrets = loadSecrets();
   activeEnv = await resolveEnv(secrets);
+
+  // 按厂商写入常见环境变量，便于 SDK 回退读取
+  process.env.STAGEHAND_MODEL_API_KEY = secrets.modelApiKey;
   process.env.OPENAI_API_KEY = secrets.modelApiKey;
+  if (secrets.modelName.startsWith("anthropic/") || secrets.modelName.startsWith("claude-")) {
+    process.env.ANTHROPIC_API_KEY = secrets.modelApiKey;
+  }
+  if (secrets.modelName.startsWith("google/") || secrets.modelName.startsWith("gemini-")) {
+    process.env.GOOGLE_API_KEY = secrets.modelApiKey;
+  }
+  if (secrets.modelName.startsWith("deepseek/")) {
+    process.env.DEEPSEEK_API_KEY = secrets.modelApiKey;
+  }
+
+  const modelOpts = {
+    modelName: secrets.modelName,
+    modelClientOptions: buildModelClientOptions(secrets),
+  };
 
   if (activeEnv === "BROWSERBASE") {
     process.env.BROWSERBASE_API_KEY = secrets.browserbaseApiKey;
@@ -166,8 +214,7 @@ async function ensureSession() {
       env: "BROWSERBASE",
       apiKey: secrets.browserbaseApiKey,
       projectId: secrets.browserbaseProjectId,
-      modelName: secrets.modelName,
-      modelClientOptions: { apiKey: secrets.modelApiKey },
+      ...modelOpts,
     });
   } else {
     const localOpts = { headless: true };
@@ -176,8 +223,7 @@ async function ensureSession() {
     }
     stagehand = new Stagehand({
       env: "LOCAL",
-      modelName: secrets.modelName,
-      modelClientOptions: { apiKey: secrets.modelApiKey },
+      ...modelOpts,
       localBrowserLaunchOptions: localOpts,
     });
   }
@@ -249,19 +295,35 @@ async function callTool(name, args = {}) {
   switch (name) {
     case "stagehand_navigate":
       await page.goto(args.url, { waitUntil: "domcontentloaded" });
-      return { ok: true, url: args.url, env: activeEnv };
+      return {
+        ok: true,
+        url: args.url,
+        env: activeEnv,
+        model: secrets?.modelName,
+      };
     case "stagehand_act":
-      return { ok: true, env: activeEnv, result: await sh.act(args.instruction) };
+      return {
+        ok: true,
+        env: activeEnv,
+        model: secrets?.modelName,
+        result: await sh.act(args.instruction),
+      };
     case "stagehand_extract": {
       const instruction = args.schema_hint
         ? `${args.instruction}\nSchema hint: ${args.schema_hint}`
         : args.instruction;
-      return { ok: true, env: activeEnv, result: await sh.extract(instruction) };
+      return {
+        ok: true,
+        env: activeEnv,
+        model: secrets?.modelName,
+        result: await sh.extract(instruction),
+      };
     }
     case "stagehand_observe":
       return {
         ok: true,
         env: activeEnv,
+        model: secrets?.modelName,
         result: await sh.observe(args.instruction || undefined),
       };
     default:
@@ -270,7 +332,7 @@ async function callTool(name, args = {}) {
 }
 
 const server = new Server(
-  { name: "cizhenyu-stagehand", version: "1.2.0" },
+  { name: "cizhenyu-stagehand", version: "1.3.0" },
   { capabilities: { tools: {} } },
 );
 
