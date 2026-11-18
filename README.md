@@ -1,6 +1,6 @@
 # cizhenyu_stagehand
 
-Stagehand MCP for 词真语 Deploy：**本地浏览器优先，Browserbase 云兜底**；**模型由配置驱动，不写死厂商**。
+Stagehand MCP for 磁帧鱼 Deploy：**本地浏览器优先，Browserbase 云兜底**；**模型由配置驱动，不写死厂商**。
 
 ## 运行模式（`mode`）
 
