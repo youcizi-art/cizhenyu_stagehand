@@ -4,15 +4,24 @@
   "name": "Stagehand",
   "category": "crawl",
   "tier": "recommended",
-  "description": "浏览器自动化（本地优先 / 云兜底）",
+  "description": "Browser automation (local-first / cloud fallback)",
   "source": {
     "github": "https://github.com/youcizi-art/cizhenyu_stagehand",
     "defaultRef": "master"
   },
   "install": {
     "runtime": "node",
-    "steps": [{ "run": "npm", "args": ["install"] }],
-    "readyCheck": ["mcp_launcher.mjs"]
+    "steps": [
+      {
+        "run": "npm",
+        "args": [
+          "install"
+        ]
+      }
+    ],
+    "readyCheck": [
+      "mcp_launcher.mjs"
+    ]
   },
   "credentials": {
     "key": "stagehand",
@@ -20,29 +29,41 @@
       {
         "type": "select",
         "name": "mode",
-        "label": "运行模式",
+        "label": "Run mode",
         "required": true,
         "default": "auto",
-        "tip": "自动：优先本机浏览器，不可用再走云。仅本地 / 仅云端：强制对应环境。",
+        "tip": "Auto: prefer local browser, fall back to cloud. Local only / Cloud only: force that environment.",
         "options": [
-          { "value": "auto", "label": "自动（推荐）" },
-          { "value": "local", "label": "仅本地" },
-          { "value": "browserbase", "label": "仅云端" }
+          {
+            "value": "auto",
+            "label": "Auto (recommended)"
+          },
+          {
+            "value": "local",
+            "label": "Local only"
+          },
+          {
+            "value": "browserbase",
+            "label": "Cloud only"
+          }
         ]
       },
       {
         "type": "select",
         "name": "modelProvider",
-        "label": "模型厂商",
+        "label": "Model provider",
         "required": true,
         "default": "openai",
         "linkTarget": "modelApiKey",
-        "tip": "选择后会预填模型名与兼容端点；可再手动改。",
+        "tip": "Selecting a provider prefills model name and compatible endpoint; you can edit them.",
         "options": [
           {
             "value": "openai",
             "label": "OpenAI",
-            "setFields": { "modelName": "gpt-4o-mini", "modelBaseUrl": "" },
+            "setFields": {
+              "modelName": "gpt-4o-mini",
+              "modelBaseUrl": ""
+            },
             "link": {
               "label": "OpenAI API Keys",
               "url": "https://platform.openai.com/api-keys"
@@ -63,7 +84,10 @@
           {
             "value": "google",
             "label": "Google Gemini",
-            "setFields": { "modelName": "gemini-2.0-flash", "modelBaseUrl": "" },
+            "setFields": {
+              "modelName": "gemini-2.0-flash",
+              "modelBaseUrl": ""
+            },
             "link": {
               "label": "Google AI Studio",
               "url": "https://aistudio.google.com/apikey"
@@ -83,7 +107,7 @@
           },
           {
             "value": "kimi",
-            "label": "Kimi（月之暗面）",
+            "label": "Kimi (Moonshot)",
             "setFields": {
               "modelName": "openai/moonshot-v1-auto",
               "modelBaseUrl": "https://api.moonshot.cn/v1"
@@ -95,19 +119,19 @@
           },
           {
             "value": "glm",
-            "label": "智谱 GLM",
+            "label": "Zhipu GLM",
             "setFields": {
               "modelName": "openai/glm-4-flash",
               "modelBaseUrl": "https://open.bigmodel.cn/api/paas/v4"
             },
             "link": {
-              "label": "智谱 API Keys",
+              "label": "Zhipu API Keys",
               "url": "https://open.bigmodel.cn/usercenter/apikeys"
             }
           },
           {
             "value": "qwen",
-            "label": "通义千问",
+            "label": "Tongyi Qianwen",
             "setFields": {
               "modelName": "openai/qwen-plus",
               "modelBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -119,18 +143,21 @@
           },
           {
             "value": "custom",
-            "label": "自定义（OpenAI 兼容）",
-            "setFields": { "modelName": "", "modelBaseUrl": "" }
+            "label": "Custom (OpenAI-compatible)",
+            "setFields": {
+              "modelName": "",
+              "modelBaseUrl": ""
+            }
           }
         ]
       },
       {
         "type": "input",
         "name": "modelName",
-        "label": "模型名称",
+        "label": "Model name",
         "required": true,
-        "placeholder": "如 gpt-4o-mini 或 openai/qwen-plus",
-        "tip": "Stagehand 识别用。一等公民可用裸名；兼容端点建议 openai/模型ID。"
+        "placeholder": "e.g. gpt-4o-mini or openai/qwen-plus",
+        "tip": "Name Stagehand uses. First-class models can use bare ids; compatible endpoints prefer openai/<model-id>."
       },
       {
         "type": "input",
@@ -138,32 +165,40 @@
         "label": "API Base URL",
         "required": false,
         "placeholder": "https://…/v1",
-        "tip": "OpenAI 兼容接口地址。Kimi / GLM / 千问已预填。",
+        "tip": "OpenAI-compatible base URL. Prefills for Kimi / GLM / Qianwen.",
         "visibleWhen": {
           "field": "modelProvider",
-          "in": ["kimi", "glm", "qwen", "custom"]
+          "in": [
+            "kimi",
+            "glm",
+            "qwen",
+            "custom"
+          ]
         }
       },
       {
         "type": "password",
         "name": "modelApiKey",
-        "label": "模型 API Key",
+        "label": "Model API Key",
         "required": true,
-        "tip": "Stagehand 工具进程内调用大模型所需，与 Agent 自身配额无关。"
+        "tip": "Used by the Stagehand process to call the LLM; independent of Agent quotas."
       },
       {
         "type": "password",
         "name": "browserbaseApiKey",
         "label": "Browserbase API Key",
         "required": false,
-        "tip": "推荐填写。「仅云端」模式必填。Project ID 请从 Browserbase 控制台复制。",
+        "tip": "Recommended. Required for Cloud-only mode. Copy Project ID from the Browserbase console.",
         "link": {
           "label": "Browserbase Settings",
           "url": "https://www.browserbase.com/settings"
         },
         "visibleWhen": {
           "field": "mode",
-          "in": ["auto", "browserbase"]
+          "in": [
+            "auto",
+            "browserbase"
+          ]
         }
       },
       {
@@ -171,36 +206,123 @@
         "name": "browserbaseProjectId",
         "label": "Browserbase Project ID",
         "required": false,
-        "placeholder": "从 Browserbase 控制台复制",
-        "tip": "填入你账号下的 Project ID（勿使用他人项目）。",
+        "placeholder": "Copy from Browserbase console",
+        "tip": "Your account Project ID (do not use someone else’s project).",
         "visibleWhen": {
           "field": "mode",
-          "in": ["auto", "browserbase"]
+          "in": [
+            "auto",
+            "browserbase"
+          ]
         }
       }
     ]
   },
   "env": [
-    { "name": "STAGEHAND_MODE", "fromCredential": "mode" },
-    { "name": "STAGEHAND_MODEL_API_KEY", "fromCredential": "modelApiKey" },
-    { "name": "OPENAI_API_KEY", "fromCredential": "modelApiKey" },
-    { "name": "STAGEHAND_MODEL_NAME", "fromCredential": "modelName" },
-    { "name": "STAGEHAND_MODEL_PROVIDER", "fromCredential": "modelProvider" },
-    { "name": "STAGEHAND_MODEL_BASE_URL", "fromCredential": "modelBaseUrl" },
-    { "name": "BROWSERBASE_API_KEY", "fromCredential": "browserbaseApiKey" },
-    { "name": "BROWSERBASE_PROJECT_ID", "fromCredential": "browserbaseProjectId" },
-    { "name": "CIZHENYU_AUTH_DIR", "from": "credentialsDir" }
+    {
+      "name": "STAGEHAND_MODE",
+      "fromCredential": "mode"
+    },
+    {
+      "name": "STAGEHAND_MODEL_API_KEY",
+      "fromCredential": "modelApiKey"
+    },
+    {
+      "name": "OPENAI_API_KEY",
+      "fromCredential": "modelApiKey"
+    },
+    {
+      "name": "STAGEHAND_MODEL_NAME",
+      "fromCredential": "modelName"
+    },
+    {
+      "name": "STAGEHAND_MODEL_PROVIDER",
+      "fromCredential": "modelProvider"
+    },
+    {
+      "name": "STAGEHAND_MODEL_BASE_URL",
+      "fromCredential": "modelBaseUrl"
+    },
+    {
+      "name": "BROWSERBASE_API_KEY",
+      "fromCredential": "browserbaseApiKey"
+    },
+    {
+      "name": "BROWSERBASE_PROJECT_ID",
+      "fromCredential": "browserbaseProjectId"
+    },
+    {
+      "name": "CIZHENYU_AUTH_DIR",
+      "from": "credentialsDir"
+    }
   ],
   "mcp": {
     "transport": "stdio",
     "command": "node",
-    "args": ["mcp_launcher.mjs"],
+    "args": [
+      "mcp_launcher.mjs"
+    ],
     "cwd": "."
   },
-  "guides": { "setup": "guides/setup.md" },
+  "guides": {
+    "setup": "guides/setup.md",
+    "setupByLocale": {
+      "zh-CN": "guides/setup.md",
+      "zh": "guides/setup.md",
+      "en": "guides/setup.en.md",
+      "en-US": "guides/setup.en.md"
+    }
+  },
   "health": {
     "requireCredentials": true,
-    "requireReadyFiles": ["mcp_launcher.mjs"]
+    "requireReadyFiles": [
+      "mcp_launcher.mjs"
+    ]
   },
-  "actions": []
+  "actions": [],
+  "defaultLocale": "en",
+  "i18n": {
+    "zh-CN": {
+      "description": "浏览器自动化（本地优先 / 云兜底）",
+      "fields": {
+        "mode": {
+          "label": "运行模式",
+          "tip": "自动：优先本机浏览器，不可用再走云。仅本地 / 仅云端：强制对应环境。"
+        },
+        "modelProvider": {
+          "label": "模型厂商",
+          "tip": "选择后会预填模型名与兼容端点；可再手动改。"
+        },
+        "modelName": {
+          "label": "模型名称",
+          "tip": "Stagehand 识别用。一等公民可用裸名；兼容端点建议 openai/模型ID。",
+          "placeholder": "如 gpt-4o-mini 或 openai/qwen-plus"
+        },
+        "modelBaseUrl": {
+          "tip": "OpenAI 兼容接口地址。Kimi / GLM / 千问已预填。"
+        },
+        "modelApiKey": {
+          "label": "模型 API Key",
+          "tip": "Stagehand 工具进程内调用大模型所需，与 Agent 自身配额无关。"
+        },
+        "browserbaseApiKey": {
+          "tip": "推荐填写。「仅云端」模式必填。Project ID 请从 Browserbase 控制台复制。",
+          "linkLabel": "Browserbase Settings"
+        },
+        "browserbaseProjectId": {
+          "tip": "填入你账号下的 Project ID（勿使用他人项目）。",
+          "placeholder": "从 Browserbase 控制台复制"
+        }
+      },
+      "options": {
+        "mode.auto": "自动（推荐）",
+        "mode.local": "仅本地",
+        "mode.browserbase": "仅云端",
+        "modelProvider.kimi": "Kimi（月之暗面）",
+        "modelProvider.glm": "智谱 GLM",
+        "modelProvider.qwen": "通义千问",
+        "modelProvider.custom": "自定义（OpenAI 兼容）"
+      }
+    }
+  }
 }
